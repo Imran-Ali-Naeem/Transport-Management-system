@@ -1,20 +1,36 @@
-require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const dotenv = require('dotenv');
 const User = require('./models/User');
 const authRoutes = require('./routes/authRoutes');
+const busRoutes = require('./routes/busRoutes');
+const userRoutes = require('./routes/userRoutes');
 const errorHandler = require('./middleware/errorHandler');
+const scheduleRoutes = require('./routes/scheduleRoutes');
+
+// Load env vars
+dotenv.config();
 
 // Initialize app
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: 'http://localhost:3000', // React app
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/buses', busRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/schedules', scheduleRoutes);
 
 // Error Handler
 app.use(errorHandler);
@@ -24,9 +40,9 @@ console.log('Attempting to connect to MongoDB...');
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/nu_cfd_transport', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  autoIndex: true, // Build indexes
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s
-  socketTimeoutMS: 45000, // Close sockets after 45s
+  autoIndex: true,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
 })
 .then(async () => {
   console.log('MongoDB Connected Successfully');
@@ -105,10 +121,10 @@ const cleanupDatabase = async () => {
     // Update each user to only include valid fields
     for (const user of users) {
       const cleanUser = {
-        name: user.name,
+        name: user.name || '',
         email: user.email,
         password: user.password,
-        role: user.role
+        role: user.role || 'student'
       };
       
       await User.findByIdAndUpdate(user._id, cleanUser, { 

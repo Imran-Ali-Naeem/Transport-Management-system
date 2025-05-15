@@ -1,94 +1,105 @@
 const User = require('../models/User');
-const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const ErrorResponse = require('../utils/errorResponse');
+const { generateToken } = require('../services/jwtService');
+const { sendOTP, verifyOTP } = require('../services/otpService');
+
+// @desc    Send OTP for registration
+// @route   POST /api/auth/send-otp
+// @access  Public
+exports.sendOTP = async (req, res) => {
+  try {
+    const { email, name } = req.body;
+
+    if (!email || !name) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please provide both email and name'
+      });
+    }
+
+    // Check if email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email already registered'
+      });
+    }
+
+    // Send OTP
+    await sendOTP(email, name);
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP sent successfully'
+    });
+  } catch (err) {
+    console.error('Error in sendOTP:', err);
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to send OTP'
+    });
+  }
+};
 
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, otp } = req.body;
 
-    // Log registration attempt
-    console.log('Registration attempt:', { name, email });
-
-    // Validate required fields
-    if (!name || !email || !password) {
-      console.log('Missing required fields');
+    if (!name || !email || !password || !otp) {
       return res.status(400).json({
         success: false,
-        error: 'Please provide name, email and password'
+        error: 'Please provide all required fields'
       });
     }
 
-    // Check if email already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
-      console.log('Email already exists:', email);
       return res.status(400).json({
         success: false,
-        error: 'This email is already registered. Please use a different email address.'
+        error: 'Email already registered'
       });
     }
 
-    // Create new user instance
-    const user = new User({
-      name: name.trim(),
-      email: email.toLowerCase().trim(),
+    // Verify OTP
+    try {
+      await verifyOTP(email, otp);
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        error: err.message
+      });
+    }
+
+    // Create user
+    const user = await User.create({
+      name,
+      email,
       password,
       role: 'student'
     });
 
-    // Save the user
-    await user.save();
-    console.log('User created successfully:', user.email);
-
-    // Create token
-    const token = jwt.sign(
-      { id: user._id },
-      process.env.JWT_SECRET || 'your-jwt-secret',
-      {
-        expiresIn: process.env.JWT_EXPIRE || '30d'
-      }
-    );
+    // Generate token
+    const token = generateToken(user);
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful',
       token,
-      user: {
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
     });
   } catch (err) {
-    console.error('Registration error details:', {
-      error: err.message,
-      stack: err.stack,
-      code: err.code,
-      name: err.name
-    });
-    
-    if (err.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        error: 'This email is already registered. Please use a different email address.'
-      });
-    }
-
-    if (err.name === 'ValidationError') {
-      const messages = Object.values(err.errors).map(error => error.message);
-      return res.status(400).json({
-        success: false,
-        error: messages[0]
-      });
-    }
-
+    console.error('Registration error:', err);
     res.status(500).json({
       success: false,
-      error: 'Registration failed. Please try again.'
+      error: err.message || 'Failed to register user'
     });
   }
 };
@@ -119,33 +130,28 @@ exports.login = async (req, res) => {
     }
 
     // Simple password comparison
-    const isMatch = user.password === password;
-
-    if (!isMatch) {
+    if (user.password !== password) {
       return res.status(401).json({
         success: false,
         error: 'Invalid credentials'
       });
     }
 
-    // Create token
-    const token = jwt.sign(
-      { 
-        id: user._id,
-        role: user.role
-      }, 
-      process.env.JWT_SECRET || 'your-jwt-secret',
-      {
-        expiresIn: process.env.JWT_EXPIRE || '30d'
-      }
-    );
+    // Generate token
+    const token = generateToken(user);
+
+    // Remove password from user object
+    const userResponse = {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    };
 
     return res.status(200).json({
       success: true,
       token,
-      email: user.email,
-      name: user.name,
-      role: user.role
+      ...userResponse
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -156,6 +162,36 @@ exports.login = async (req, res) => {
   }
 };
 
+// @desc    Get current logged in user
+// @route   GET /api/auth/me
+// @access  Private
+exports.getMe = async (req, res, next) => {
+  try {
+    // User is already attached to req by protect middleware
+    const user = req.user;
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Return user data in exact format expected by frontend
+    res.status(200).json({
+      success: true,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    next(new ErrorResponse('Error fetching user data', 500));
+  }
+};
+
 // @desc    Test password comparison
 // @route   POST /api/auth/test-password
 // @access  Public
@@ -163,88 +199,45 @@ exports.testPasswordComparison = async (req, res, next) => {
   const { email, password } = req.body;
 
   try {
-    console.log('Test password comparison for email:', email);
-    
     const user = await User.findOne({ email }).select('+password');
     
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found',
-        email: email
+        message: 'User not found'
       });
     }
-
-    console.log('Found user:', {
-      email: user.email,
-      role: user.role,
-      storedPasswordHash: user.password,
-      providedPassword: password
-    });
 
     const isMatch = await bcrypt.compare(password, user.password);
     
     return res.json({
       success: true,
-      passwordMatches: isMatch,
-      userFound: true,
-      role: user.role
+      passwordMatches: isMatch
     });
 
   } catch (err) {
     console.error('Test password error:', err);
-    return res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-};
-
-// @desc    Get current logged in user
-// @route   GET /api/auth/me
-// @access  Private
-exports.getMe = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.id);
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        email: user.email,
-        name: user.name,
-        role: user.role
-      }
-    });
-  } catch (err) {
-    next(err);
+    next(new ErrorResponse(err.message, 500));
   }
 };
 
 // @desc    Test password hash
 // @route   POST /api/auth/test-hash
 // @access  Public
-exports.testHash = async (req, res) => {
+exports.testHash = async (req, res, next) => {
   try {
     const { password } = req.body;
     
-    // Generate a new hash
     const salt = await bcrypt.genSalt(12);
     const hash = await bcrypt.hash(password, salt);
     
-    // Try to compare
     const isMatch = await bcrypt.compare(password, hash);
     
     res.json({
       success: true,
-      originalPassword: password,
-      generatedHash: hash,
-      comparisonResult: isMatch,
-      hashLength: hash.length
+      comparisonResult: isMatch
     });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    next(new ErrorResponse(err.message, 500));
   }
 };
