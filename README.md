@@ -1,6 +1,5 @@
 # Transport Management System (TMS)
 
-![Project Banner]([https://via.placeholder.com/800x200?text=Transport+Management+System](https://www.google.com/imgres?q=university%20transport%20management%20system&imgurl=https%3A%2F%2Fkampusbuddy.com%2Fassets%2Fimg%2Ftransport-management-system-articles.jpg&imgrefurl=https%3A%2F%2Fkampusbuddy.com%2Farticles%2Fschool-transport-management-system.html&docid=-hTjAzxaGBw8UM&tbnid=FfsPEwe3ap52wM&vet=12ahUKEwizo4XxhKiNAxVRSKQEHf8IHFkQM3oECE0QAA..i&w=1170&h=446&hcb=2&ved=2ahUKEwizo4XxhKiNAxVRSKQEHf8IHFkQM3oECE0QAA)) <!-- Add your actual banner image if available -->
 
 A comprehensive full-stack solution for managing transportation logistics with role-based access control, real-time tracking, and scheduling capabilities.
 
